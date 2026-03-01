@@ -17,7 +17,7 @@
             android:exported="true"
             android:label="Acid Cam Android"
             android:screenOrientation="landscape"
-            android:theme="@style/AppTheme.NoActionBar">
+            android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
