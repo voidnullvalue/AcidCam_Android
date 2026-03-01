@@ -14,7 +14,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.Button;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -32,7 +32,14 @@ import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 
+import com.google.android.material.appbar.AppBarLayout;
+import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import org.opencv.android.Utils;
@@ -71,6 +78,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
 
     private Mat yuvBuffer;
     private Mat rgbaBuffer;
+    private Mat uprightBuffer;
     private Mat outputBgrBuffer;
     private byte[] nv21Buffer;
     private Bitmap displayBitmap;
@@ -79,7 +87,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     private int filterIndex = 0;
     private int currentSetFilter = 0;
     private int flipState = -1;
-    private int filterMapMax = filter.maxFilters();
+    private final int filterMapMax = filter.maxFilters();
     private boolean filterChanged = false;
 
     private int snapShotIndex = 0;
@@ -98,14 +106,34 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         System.loadLibrary("opencv_java4");
         System.loadLibrary("acidcam");
 
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.tutorial1_surface_view);
 
+        View root = findViewById(R.id.root);
+        AppBarLayout appBar = findViewById(R.id.app_bar);
+        FloatingActionButton fabCapture = findViewById(R.id.fab_capture);
         previewView = findViewById(R.id.camera_preview);
         processedPreview = findViewById(R.id.processed_preview);
         permissionOverlay = findViewById(R.id.permission_overlay);
         permissionMessage = findViewById(R.id.permission_message);
-        Button permissionRetry = findViewById(R.id.permission_retry);
-        permissionRetry.setOnClickListener(v -> requestCameraPermission());
+        MaterialToolbar toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
+            Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+
+            ViewGroup.MarginLayoutParams appBarLayoutParams = (ViewGroup.MarginLayoutParams) appBar.getLayoutParams();
+            appBarLayoutParams.topMargin = insets.top;
+            appBar.setLayoutParams(appBarLayoutParams);
+
+            ViewGroup.MarginLayoutParams fabLayoutParams = (ViewGroup.MarginLayoutParams) fabCapture.getLayoutParams();
+            fabLayoutParams.bottomMargin = insets.bottom + dpToPx(24);
+            fabCapture.setLayoutParams(fabLayoutParams);
+            return WindowInsetsCompat.CONSUMED;
+        });
+
+        findViewById(R.id.permission_retry).setOnClickListener(v -> requestCameraPermission());
+        fabCapture.setOnClickListener(v -> showImageSavedNow());
         processedPreview.setOnTouchListener(this);
 
         if (savedInstanceState != null) {
@@ -120,6 +148,10 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
 
         analysisExecutor = Executors.newSingleThreadExecutor();
         requestCameraPermission();
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
     private void onPermissionResult(boolean granted) {
@@ -154,17 +186,20 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     }
 
     private void bindUseCases() {
-        if (cameraProvider == null) {
+        if (cameraProvider == null || previewView.getDisplay() == null) {
             return;
         }
 
+        int rotation = previewView.getDisplay().getRotation();
         Preview preview = new Preview.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .setTargetRotation(rotation)
                 .build();
         preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
         ImageAnalysis analysis = new ImageAnalysis.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .setTargetRotation(rotation)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build();
@@ -182,37 +217,39 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     private void analyzeImage(@NonNull ImageProxy imageProxy) {
         int width = imageProxy.getWidth();
         int height = imageProxy.getHeight();
+        int rotationDegrees = imageProxy.getImageInfo().getRotationDegrees();
 
-        ensureBuffers(width, height);
+        ensureBuffers(width, height, rotationDegrees);
         yuv420888ToNv21(imageProxy, nv21Buffer);
         yuvBuffer.put(0, 0, nv21Buffer);
 
         Imgproc.cvtColor(yuvBuffer, rgbaBuffer, Imgproc.COLOR_YUV2RGBA_NV21, 4);
+        Mat processingBuffer = rotateForDisplay(rgbaBuffer, rotationDegrees);
 
         if (filterChanged) {
             filterChanged = false;
             filter.clear_frames();
         }
 
-        filter.Filter(currentSetFilter, rgbaBuffer.getNativeObjAddr());
-        Core.flip(rgbaBuffer, rgbaBuffer, flipState);
+        filter.Filter(currentSetFilter, processingBuffer.getNativeObjAddr());
+        Core.flip(processingBuffer, processingBuffer, flipState);
 
         if (takeSnapshot) {
             ++takeSnapshotWait;
             if (takeSnapshotWait > 30) {
                 takeSnapshotWait = 0;
                 takeSnapshot = false;
-                saveImage(rgbaBuffer);
+                saveImage(processingBuffer);
             }
         }
 
         if (takeSnapshotNow) {
-            saveImage(rgbaBuffer);
+            saveImage(processingBuffer);
             takeSnapshotNow = false;
         }
 
         try {
-            Utils.matToBitmap(rgbaBuffer, displayBitmap);
+            Utils.matToBitmap(processingBuffer, displayBitmap);
             runOnUiThread(() -> processedPreview.setImageBitmap(displayBitmap));
         } catch (Exception ignored) {
         } finally {
@@ -220,7 +257,21 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         }
     }
 
-    private void ensureBuffers(int width, int height) {
+    private Mat rotateForDisplay(Mat source, int rotationDegrees) {
+        if (rotationDegrees == 90) {
+            Core.rotate(source, uprightBuffer, Core.ROTATE_90_CLOCKWISE);
+            return uprightBuffer;
+        } else if (rotationDegrees == 180) {
+            Core.rotate(source, uprightBuffer, Core.ROTATE_180);
+            return uprightBuffer;
+        } else if (rotationDegrees == 270) {
+            Core.rotate(source, uprightBuffer, Core.ROTATE_90_COUNTERCLOCKWISE);
+            return uprightBuffer;
+        }
+        return source;
+    }
+
+    private void ensureBuffers(int width, int height, int rotationDegrees) {
         int requiredNv21 = width * height * 3 / 2;
         if (nv21Buffer == null || nv21Buffer.length != requiredNv21) {
             nv21Buffer = new byte[requiredNv21];
@@ -232,7 +283,18 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         if (rgbaBuffer == null || rgbaBuffer.cols() != width || rgbaBuffer.rows() != height) {
             releaseMat(rgbaBuffer);
             rgbaBuffer = new Mat(height, width, CvType.CV_8UC4);
-            displayBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        }
+
+        int outputWidth = rotationDegrees == 90 || rotationDegrees == 270 ? height : width;
+        int outputHeight = rotationDegrees == 90 || rotationDegrees == 270 ? width : height;
+
+        if (uprightBuffer == null || uprightBuffer.cols() != outputWidth || uprightBuffer.rows() != outputHeight) {
+            releaseMat(uprightBuffer);
+            uprightBuffer = new Mat(outputHeight, outputWidth, CvType.CV_8UC4);
+        }
+
+        if (displayBitmap == null || displayBitmap.getWidth() != outputWidth || displayBitmap.getHeight() != outputHeight) {
+            displayBitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888);
         }
     }
 
@@ -299,6 +361,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         }
         releaseMat(yuvBuffer);
         releaseMat(rgbaBuffer);
+        releaseMat(uprightBuffer);
         releaseMat(outputBgrBuffer);
         if (mp != null) {
             mp.release();
