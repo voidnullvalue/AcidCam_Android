@@ -1,446 +1,427 @@
 package com.lostsidedead.acidcam;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.List;
-
-import org.opencv.android.BaseLoaderCallback;
-import org.opencv.android.CameraActivity;
-import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
-import org.opencv.android.LoaderCallbackInterface;
-import org.opencv.android.OpenCVLoader;
-import org.opencv.core.Mat;
-import org.opencv.android.CameraBridgeViewBase;
-import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
-import org.opencv.core.Core;
-import org.opencv.android.JavaCameraView;
-
-import android.os.Bundle;
-import android.util.Log;
-import android.view.*;
-import android.view.MenuItem;
-import android.view.MenuItem.OnMenuItemClickListener;
-import android.view.SurfaceView;
-import android.view.WindowManager;
-
-import org.opencv.imgproc.Imgproc;
-
+import android.Manifest;
+import android.content.ContentValues;
 import android.content.SharedPreferences;
-import android.content.res.Configuration;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.util.Log;
-import android.view.GestureDetector;
+import android.provider.MediaStore;
 import android.view.Menu;
 import android.view.MenuInflater;
-
-import org.opencv.imgcodecs.Imgcodecs;
-
 import android.view.MenuItem;
 import android.view.MotionEvent;
-import android.view.SubMenu;
-import android.view.View.OnTouchListener;
-import android.view.WindowManager;
-import android.widget.Toast;
-import android.view.ContextMenu.*;
-import android.widget.AdapterView.AdapterContextMenuInfo;
-import android.widget.*;
 import android.view.View;
-import android.view.MenuItem.OnMenuItemClickListener;
-import android.media.MediaPlayer;
-import android.media.MediaScannerConnection;
-import android.app.Activity;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 
-import java.util.Collections;
-import android.content.ContentValues;
-import android.provider.MediaStore.*;
-import android.provider.*;
-import android.content.Context;
-import android.hardware.Camera;
-import static org.opencv.imgproc.Imgproc.*;
-import static org.opencv.imgcodecs.Imgcodecs.imread;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.AspectRatio;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
+import androidx.core.content.ContextCompat;
 
-import java.util.Random;
-import java.util.List;
+import com.google.common.util.concurrent.ListenableFuture;
 
-import android.hardware.Camera;
-import android.hardware.Camera.*;
-import android.media.MediaRecorder;
-import android.view.Surface;
-import android.graphics.Canvas;
-import android.media.CamcorderProfile;
-import android.Manifest;
-import android.content.pm.PackageManager;
+import org.opencv.android.Utils;
+import org.opencv.core.Core;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
 
-public class MainActivity extends CameraActivity implements CvCameraViewListener2, OnTouchListener, PopupMenu.OnMenuItemClickListener {
-    private static final String TAG = "OCVSample::Activity";
-    private CameraBridgeViewBase mOpenCvCameraView;
-    private boolean mIsJavaCamera = true;
-    private MenuItem mItemSwitchCamera = null;
-    public AcidCam_Filter filter = new AcidCam_Filter();
-    public int filter_index = 0;
-    public int current_set_filter = 0;
-    private MediaPlayer mp;
-    private int menu_locked = 0;
-    private boolean take_snapshot_now = false;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class MainActivity extends AppCompatActivity implements View.OnTouchListener, androidx.appcompat.widget.PopupMenu.OnMenuItemClickListener {
     private static final String STATE_CAMERA_INDEX = "cameraIndex";
     private static final String STATE_FLIP = "cameraFlip";
-    private static final String FRONT_SIZE_INDEX = "camera_front_index";
-    private static final String BACK_SIZE_INDEX = "camera_back_index";
     private static final String CURRENT_FILTER = "current_filter";
     private static final String CURRENT_SET_FILTER = "current_set_filter";
-    private int flip_state = 0;
-    private int front_size_index = 0;
-    private int back_size_index = 0;
-    private int filter_map_max = filter.maxFilters();
-    private int is_sorted = 0;
-/*
-    private MediaRecorder recorder = new MediaRecorder();
 
-    public void initRecorder() {
-        recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-        recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
-        android.hardware.Camera.Size size = image_back_sizes.get(back_size_index);
-        if (camera_index == 1) {
-            size = image_front_sizes.get(front_size_index);
-        }
-        CamcorderProfile cpHigh = CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH);
-        recorder.setProfile(cpHigh);
-        recorder.setOutputFile("out.mp4");
-        recorder.setVideoSize(size.width,size.height);
-        recorder.setOnInfoListener(this);
-        recorder.setOnErrorListener(this);
-        try {
-            recorder.prepare();
-        } catch(java.io.IOException ie) {
-            Log.d("AC2", "Error IOException Recorder.prepare()");
-        }
-    } */
+    private static final int MENU_FILTER_MAP = 1133;
+    private static final int MENU_FILTER_SORTED_MAP = 1134;
 
-    private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
-        @Override
-        public void onManagerConnected(int status) {
-            switch (status) {
-                case LoaderCallbackInterface.SUCCESS: {
-                    Log.i(TAG, "OpenCV loaded successfully");
-                    System.loadLibrary("acidcam");
-                    mOpenCvCameraView.enableView();
-                }
-                break;
-                default: {
-                    super.onManagerConnected(status);
-                }
-                break;
-            }
-        }
-    };
+    private final AcidCam_Filter filter = new AcidCam_Filter();
+    private final ActivityResultLauncher<String> cameraPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), this::onPermissionResult);
 
-    public MainActivity() {
-        Log.i(TAG, "Instantiated new " + this.getClass());
-    }
+    private PreviewView previewView;
+    private ImageView processedPreview;
+    private LinearLayout permissionOverlay;
+    private TextView permissionMessage;
 
-    public int camera_index = 0;
-    public int num_cameras = 2;
-    public int isfront = 1;
-    private List<android.hardware.Camera.Size> image_front_sizes, image_back_sizes;
+    private ProcessCameraProvider cameraProvider;
+    private ExecutorService analysisExecutor;
 
-    public List<android.hardware.Camera.Size> getListOfSizes(int camera_off) {
-        Camera camera = null;
-        CameraInfo info = new CameraInfo();
-        Camera.getCameraInfo(camera_off, info);
-        num_cameras = Camera.getNumberOfCameras();
-        camera = camera.open(camera_index);
-        Parameters param = camera.getParameters();
-        camera.release();
-        List<android.hardware.Camera.Size> sz = param.getSupportedVideoSizes();
-        List<android.hardware.Camera.Size> rt = new java.util.ArrayList<android.hardware.Camera.Size>();
-        for(int i = 0; i < sz.size(); ++i) {
-            android.hardware.Camera.Size v = sz.get(i);
-            if(v.width <= 1280 && v.height <= 720)
-                rt.add(v);
-        }
-        return rt;
-    }
+    private Mat yuvBuffer;
+    private Mat rgbaBuffer;
+    private Mat outputBgrBuffer;
+    private byte[] nv21Buffer;
+    private Bitmap displayBitmap;
+
+    private int lensFacing = CameraSelector.LENS_FACING_FRONT;
+    private int filterIndex = 0;
+    private int currentSetFilter = 0;
+    private int flipState = -1;
+    private int filterMapMax = filter.maxFilters();
+    private boolean filterChanged = false;
+
+    private int snapShotIndex = 0;
+    private int takeSnapshotWait = 0;
+    private boolean takeSnapshot = false;
+    private boolean takeSnapshotNow = false;
+
+    private float x1;
+    private float x2;
+
+    private MediaPlayer mp;
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
-        Log.i(TAG, "called onCreate");
+    protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-        if (savedInstanceState != null) {
-            camera_index = savedInstanceState.getInt(STATE_CAMERA_INDEX,  1);
-            flip_state = savedInstanceState.getInt(STATE_FLIP, 0);
-            front_size_index = savedInstanceState.getInt(FRONT_SIZE_INDEX, 0);
-            back_size_index = savedInstanceState.getInt(BACK_SIZE_INDEX, 0);
-            filter_index = savedInstanceState.getInt(CURRENT_FILTER, 0);
-            current_set_filter = savedInstanceState.getInt(CURRENT_SET_FILTER, 0);
-        } else {
-            camera_index = 1;
-            flip_state = -1;
-            front_size_index = 0;
-            back_size_index = 0;
-            filter_index = 0;
-            current_set_filter = 0;
-        }
-        image_back_sizes = getListOfSizes(0);
-        image_front_sizes = getListOfSizes(1);
-        if(num_cameras <= 1) camera_index = 0;
-        //int max_size = 0;
-        android.hardware.Camera.Size size = image_back_sizes.get(back_size_index);
-        if (camera_index == 1) {
-            size = image_front_sizes.get(front_size_index);
-        }
-
-        for (int i = 0; i < image_front_sizes.size(); ++i) {
-            android.hardware.Camera.Size size_x = image_front_sizes.get(i);
-            Log.d("AC2", "Front Resolution: " + size_x.width + "x" + size_x.height);
-        }
-
-        for (int i = 0; i < image_back_sizes.size(); ++i) {
-            android.hardware.Camera.Size size_x = image_back_sizes.get(i);
-            Log.d("AC2", "Rear  Resolution: " + size_x.width + "x" + size_x.height);
-        }
-
+        System.loadLibrary("opencv_java4");
+        System.loadLibrary("acidcam");
 
         setContentView(R.layout.tutorial1_surface_view);
-        mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.tutorial1_activity_java_surface_view);
-        mOpenCvCameraView.setCameraIndex(camera_index);
-        mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
-        // Max Frame Size:
-        mOpenCvCameraView.setMaxFrameSize(size.width, size.height);
-        mOpenCvCameraView.setCvCameraViewListener(this);
-        mOpenCvCameraView.setOnTouchListener(this);
+
+        previewView = findViewById(R.id.camera_preview);
+        processedPreview = findViewById(R.id.processed_preview);
+        permissionOverlay = findViewById(R.id.permission_overlay);
+        permissionMessage = findViewById(R.id.permission_message);
+        Button permissionRetry = findViewById(R.id.permission_retry);
+        permissionRetry.setOnClickListener(v -> requestCameraPermission());
+        processedPreview.setOnTouchListener(this);
+
+        if (savedInstanceState != null) {
+            lensFacing = savedInstanceState.getInt(STATE_CAMERA_INDEX, CameraSelector.LENS_FACING_FRONT);
+            flipState = savedInstanceState.getInt(STATE_FLIP, -1);
+            filterIndex = savedInstanceState.getInt(CURRENT_FILTER, 0);
+            currentSetFilter = savedInstanceState.getInt(CURRENT_SET_FILTER, 0);
+        }
+
         mp = MediaPlayer.create(this, R.raw.beep);
         getOffset();
+
+        analysisExecutor = Executors.newSingleThreadExecutor();
+        requestCameraPermission();
     }
 
-    int mOrientation = 0;
-    public boolean filter_changed = false;
-
-    @Override
-    public void onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        mOrientation = newConfig.orientation;
-    }
-
-    @Override
-    public void onPause() {
-        super.onPause();
-        if (mOpenCvCameraView != null)
-            mOpenCvCameraView.disableView();
-    }
-
-    @Override
-    public void onResume() {
-        super.onResume();
-        if (!OpenCVLoader.initDebug()) {
-            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
-            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
+    private void onPermissionResult(boolean granted) {
+        if (granted) {
+            permissionOverlay.setVisibility(View.GONE);
+            startCamera();
         } else {
-            Log.d(TAG, "OpenCV library found inside package. Using it!");
-            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+            permissionOverlay.setVisibility(View.VISIBLE);
+            permissionMessage.setText("Camera permission was denied. Grant permission to continue.");
+            Toast.makeText(this, "Camera permission is required for realtime filters.", Toast.LENGTH_LONG).show();
         }
     }
 
+    private void requestCameraPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            onPermissionResult(true);
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA);
+        }
+    }
+
+    private void startCamera() {
+        ListenableFuture<ProcessCameraProvider> providerFuture = ProcessCameraProvider.getInstance(this);
+        providerFuture.addListener(() -> {
+            try {
+                cameraProvider = providerFuture.get();
+                bindUseCases();
+            } catch (Exception e) {
+                Toast.makeText(this, "Unable to start camera: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private void bindUseCases() {
+        if (cameraProvider == null) {
+            return;
+        }
+
+        Preview preview = new Preview.Builder()
+                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .build();
+        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+
+        ImageAnalysis analysis = new ImageAnalysis.Builder()
+                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .build();
+
+        analysis.setAnalyzer(analysisExecutor, this::analyzeImage);
+
+        CameraSelector selector = new CameraSelector.Builder()
+                .requireLensFacing(lensFacing)
+                .build();
+
+        cameraProvider.unbindAll();
+        cameraProvider.bindToLifecycle(this, selector, preview, analysis);
+    }
+
+    private void analyzeImage(@NonNull ImageProxy imageProxy) {
+        int width = imageProxy.getWidth();
+        int height = imageProxy.getHeight();
+
+        ensureBuffers(width, height);
+        yuv420888ToNv21(imageProxy, nv21Buffer);
+        yuvBuffer.put(0, 0, nv21Buffer);
+
+        Imgproc.cvtColor(yuvBuffer, rgbaBuffer, Imgproc.COLOR_YUV2RGBA_NV21, 4);
+
+        if (filterChanged) {
+            filterChanged = false;
+            filter.clear_frames();
+        }
+
+        filter.Filter(currentSetFilter, rgbaBuffer.getNativeObjAddr());
+        Core.flip(rgbaBuffer, rgbaBuffer, flipState);
+
+        if (takeSnapshot) {
+            ++takeSnapshotWait;
+            if (takeSnapshotWait > 30) {
+                takeSnapshotWait = 0;
+                takeSnapshot = false;
+                saveImage(rgbaBuffer);
+            }
+        }
+
+        if (takeSnapshotNow) {
+            saveImage(rgbaBuffer);
+            takeSnapshotNow = false;
+        }
+
+        try {
+            Utils.matToBitmap(rgbaBuffer, displayBitmap);
+            runOnUiThread(() -> processedPreview.setImageBitmap(displayBitmap));
+        } catch (Exception ignored) {
+        } finally {
+            imageProxy.close();
+        }
+    }
+
+    private void ensureBuffers(int width, int height) {
+        int requiredNv21 = width * height * 3 / 2;
+        if (nv21Buffer == null || nv21Buffer.length != requiredNv21) {
+            nv21Buffer = new byte[requiredNv21];
+        }
+        if (yuvBuffer == null || yuvBuffer.cols() != width || yuvBuffer.rows() != (height + height / 2)) {
+            releaseMat(yuvBuffer);
+            yuvBuffer = new Mat(height + height / 2, width, CvType.CV_8UC1);
+        }
+        if (rgbaBuffer == null || rgbaBuffer.cols() != width || rgbaBuffer.rows() != height) {
+            releaseMat(rgbaBuffer);
+            rgbaBuffer = new Mat(height, width, CvType.CV_8UC4);
+            displayBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        }
+    }
+
+    private void yuv420888ToNv21(ImageProxy image, byte[] out) {
+        ImageProxy.PlaneProxy[] planes = image.getPlanes();
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        int ySize = width * height;
+        int uvSize = width * height / 4;
+
+        copyPlane(planes[0], width, height, out, 0, 1);
+
+        byte[] uBytes = new byte[uvSize];
+        byte[] vBytes = new byte[uvSize];
+        copyPlane(planes[1], width / 2, height / 2, uBytes, 0, 1);
+        copyPlane(planes[2], width / 2, height / 2, vBytes, 0, 1);
+
+        int outputPos = ySize;
+        for (int i = 0; i < uvSize; i++) {
+            out[outputPos++] = vBytes[i];
+            out[outputPos++] = uBytes[i];
+        }
+    }
+
+    private static void copyPlane(ImageProxy.PlaneProxy plane, int width, int height, byte[] out, int offset, int pixelStride) {
+        java.nio.ByteBuffer buffer = plane.getBuffer();
+        int rowStride = plane.getRowStride();
+        int inputPixelStride = plane.getPixelStride();
+
+        byte[] rowData = new byte[rowStride];
+        int outputPos = offset;
+
+        for (int row = 0; row < height; row++) {
+            int bytesPerRow = Math.min(rowStride, buffer.remaining());
+            buffer.get(rowData, 0, bytesPerRow);
+            for (int col = 0; col < width; col++) {
+                out[outputPos] = rowData[col * inputPixelStride];
+                outputPos += pixelStride;
+            }
+        }
+    }
 
     @Override
-    protected List<? extends CameraBridgeViewBase> getCameraViewList() {
-        return Collections.singletonList(mOpenCvCameraView);
+    protected void onPause() {
+        super.onPause();
+        if (cameraProvider != null) {
+            cameraProvider.unbindAll();
+        }
     }
 
-    public void onDestroy() {
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            startCamera();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (analysisExecutor != null) {
+            analysisExecutor.shutdown();
+        }
+        releaseMat(yuvBuffer);
+        releaseMat(rgbaBuffer);
+        releaseMat(outputBgrBuffer);
+        if (mp != null) {
+            mp.release();
+        }
         super.onDestroy();
-        if (mOpenCvCameraView != null)
-            mOpenCvCameraView.disableView();
     }
 
-    public void onCameraViewStarted(int width, int height) {
+    private void releaseMat(Mat mat) {
+        if (mat != null) {
+            mat.release();
+        }
     }
-
-    public void onCameraViewStopped() {
-        Log.d("AC2", "Camera Video Stopped");
-    }
-
-    private int MENU_GROUP_ID_SIZE = 1732;
-    private int MENU_FILTER_MAP = 1133;
-    private int MENU_FILTER_SORTED_MAP = 1134;
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        Log.i(TAG, "called onCreateOptionsMenu");
-        //reset = menu.add("Reset");
         MenuInflater inflater = getMenuInflater();
         inflater.inflate(R.menu.main, menu);
-        int num_sizes = 0;
-        if (camera_index == 1) num_sizes = image_front_sizes.size();
-        if (camera_index == 0) num_sizes = image_back_sizes.size();
-        if (num_sizes > 1) {
-            final SubMenu subSizes = menu.addSubMenu("Resolutions");
-            for (int i = 0; i < num_sizes; ++i) {
-                Size s = image_front_sizes.get(i);
-                if (camera_index == 0)
-                    s = image_back_sizes.get(i);
 
-                subSizes.add(MENU_GROUP_ID_SIZE, i, Menu.NONE, "" + s.width + "x" + s.height);
-            }
-        }
-        final SubMenu subSizes = menu.addSubMenu("Filters");
+        Menu filterMenu = menu.addSubMenu("Filters");
         for (int i = 0; i < filter.maxFilters(); ++i) {
-            subSizes.add(MENU_FILTER_MAP, i, Menu.NONE, filter.getFilterName(i));
+            filterMenu.add(MENU_FILTER_MAP, i, Menu.NONE, filter.getFilterName(i));
         }
-        final SubMenu subSizesSorted = menu.addSubMenu("Filters (Sorted)");
-        for (int i = 0; i <  filter.maxFilters(); ++i) {
-            subSizesSorted.add(MENU_FILTER_SORTED_MAP, i, Menu.NONE, filter.getFilterSortedName(i));
+
+        Menu sortedMenu = menu.addSubMenu("Filters (Sorted)");
+        for (int i = 0; i < filter.maxFilters(); ++i) {
+            sortedMenu.add(MENU_FILTER_SORTED_MAP, i, Menu.NONE, filter.getFilterSortedName(i));
         }
-        menu_locked = 1;
+
         return true;
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-
-        if (menu_locked != 1)
-            return false;
-
-        if (item.getGroupId() == MENU_GROUP_ID_SIZE) {
-            if (camera_index == 1) front_size_index = item.getItemId();
-            if (camera_index == 0) back_size_index = item.getItemId();
-            super.recreate();
-            return true;
-        }
-
         if (item.getGroupId() == MENU_FILTER_MAP) {
-            filter_index = item.getItemId();
-            current_set_filter = filter.getFilterIndex(filter_index);
-            Toast.makeText(this, "Filter changed to:  " + filter.getFilterName(filter_index), Toast.LENGTH_SHORT).show();
+            filterIndex = item.getItemId();
+            currentSetFilter = filter.getFilterIndex(filterIndex);
+            filterChanged = true;
+            Toast.makeText(this, "Filter changed to: " + filter.getFilterName(filterIndex), Toast.LENGTH_SHORT).show();
             return true;
         }
 
         if (item.getGroupId() == MENU_FILTER_SORTED_MAP) {
-            filter_index = item.getItemId();
-            current_set_filter = filter.getFilterSortedIndex(filter_index);
-            Toast.makeText(this, "Filter changed to:  " + filter.getFilterSortedName(filter_index), Toast.LENGTH_SHORT).show();
+            filterIndex = item.getItemId();
+            currentSetFilter = filter.getFilterSortedIndex(filterIndex);
+            filterChanged = true;
+            Toast.makeText(this, "Filter changed to: " + filter.getFilterSortedName(filterIndex), Toast.LENGTH_SHORT).show();
             return true;
         }
 
-        switch (item.getItemId()) {
-            case R.id.takesnapshot:
-                showImageSaved();
-                break;
-            case R.id.takesnapshot_now:
-                showImageSavedNow();
-                break;
-            case R.id.moveleft:
-                moveLeft();
-                break;
-            case R.id.moveright:
-                moveRight();
-                break;
-            case R.id.fastforward:
-                filter_index = filter_map_max-1;
-                filter_changed = true;
-                break;
-            case R.id.rewind_left:
-                filter_index = 0;
-                filter_changed = true;
-                break;
-            case R.id.flipi:
-                flip_state = 0;
-                break;
-            case R.id.flipy:
-                flip_state = 1;
-                break;
-            case R.id.flipz:
-                flip_state = -1;
-                break;
-            case R.id.switchcam:
-                if (camera_index == 0) camera_index = 1;
-                else camera_index = 0;
-                menu_locked = 0;
-                super.recreate();
-                break;
+        int id = item.getItemId();
+        if (id == R.id.takesnapshot) {
+            showImageSaved();
+        } else if (id == R.id.takesnapshot_now) {
+            showImageSavedNow();
+        } else if (id == R.id.moveleft) {
+            moveLeft();
+        } else if (id == R.id.moveright) {
+            moveRight();
+        } else if (id == R.id.fastforward) {
+            filterIndex = filterMapMax - 1;
+            currentSetFilter = filter.getFilterIndex(filterIndex);
+            filterChanged = true;
+        } else if (id == R.id.rewind_left) {
+            filterIndex = 0;
+            currentSetFilter = filter.getFilterIndex(filterIndex);
+            filterChanged = true;
+        } else if (id == R.id.flipi) {
+            flipState = 0;
+        } else if (id == R.id.flipy) {
+            flipState = 1;
+        } else if (id == R.id.flipz) {
+            flipState = -1;
+        } else if (id == R.id.switchcam) {
+            lensFacing = lensFacing == CameraSelector.LENS_FACING_BACK
+                    ? CameraSelector.LENS_FACING_FRONT
+                    : CameraSelector.LENS_FACING_BACK;
+            bindUseCases();
         }
+
         return true;
     }
 
-    private int takesnapshot_wait = 0, snap_shot_index = 0;
-    private boolean take_snapshot = false;
-
     public void showImageSaved() {
-        Toast.makeText(this, "Save Image: " + snap_shot_index + " in 2 seconds", Toast.LENGTH_SHORT).show();
-        ++snap_shot_index;
+        Toast.makeText(this, "Save Image: " + snapShotIndex + " in 2 seconds", Toast.LENGTH_SHORT).show();
+        ++snapShotIndex;
         saveOffset();
-        take_snapshot = true;
+        takeSnapshot = true;
     }
 
     public void showImageSavedNow() {
-        Toast.makeText(this, "Save Image: " + snap_shot_index + " now", Toast.LENGTH_SHORT).show();
-        ++snap_shot_index;
+        Toast.makeText(this, "Save Image: " + snapShotIndex + " now", Toast.LENGTH_SHORT).show();
+        ++snapShotIndex;
         saveOffset();
-        take_snapshot_now = true;
+        takeSnapshotNow = true;
     }
 
     public void saveOffset() {
-        SharedPreferences sp = getSharedPreferences("acidcam_prefs", android.app.Activity.MODE_PRIVATE);
-        SharedPreferences.Editor editor = sp.edit();
-        editor.putInt("acidcam.key", snap_shot_index);
-        editor.commit();
-    }
-
-    public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
-        Mat mat = inputFrame.rgba();
-        if(filter_changed == true) {
-            filter_changed = false;
-            filter.clear_frames();
-        }
-        filter.Filter(current_set_filter, mat.getNativeObjAddr());
-        Core.flip(mat, mat, flip_state);
-        if (take_snapshot == true) {
-            ++takesnapshot_wait;
-            if (takesnapshot_wait > 30) {
-                takesnapshot_wait = 0;
-                take_snapshot = false;
-                saveImage(mat);
-            }
-        }
-        if(take_snapshot_now == true) {
-            saveImage(mat);
-            take_snapshot_now = false;
-        }
-        return mat;
+        SharedPreferences sp = getSharedPreferences("acidcam_prefs", MODE_PRIVATE);
+        sp.edit().putInt("acidcam.key", snapShotIndex).apply();
     }
 
     public void getOffset() {
-        SharedPreferences sp = getSharedPreferences("acidcam_prefs", Activity.MODE_PRIVATE);
-        snap_shot_index = sp.getInt("acidcam.key", 0);
+        SharedPreferences sp = getSharedPreferences("acidcam_prefs", MODE_PRIVATE);
+        snapShotIndex = sp.getInt("acidcam.key", 0);
     }
 
     public void moveRight() {
-
-        if (filter_index < filter_map_max) {
-            ++filter_index;
-            current_set_filter = filter.getFilterIndex(filter_index);
-            filter_changed = true;
+        if (filterIndex < filterMapMax - 1) {
+            ++filterIndex;
+            currentSetFilter = filter.getFilterIndex(filterIndex);
+            filterChanged = true;
         }
-        Toast.makeText(this, "Filter changed to:  " + filter.getFilterName(filter_index), Toast.LENGTH_SHORT).show();
-
-
+        Toast.makeText(this, "Filter changed to: " + filter.getFilterName(filterIndex), Toast.LENGTH_SHORT).show();
     }
 
     public void moveLeft() {
-        if (filter_index > 0) {
-            --filter_index;
-            current_set_filter = filter.getFilterIndex(filter_index);
-            filter_changed = true;
+        if (filterIndex > 0) {
+            --filterIndex;
+            currentSetFilter = filter.getFilterIndex(filterIndex);
+            filterChanged = true;
         }
-        Toast.makeText(this, "Filter changed to:  " + filter.getFilterName(filter_index), Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Filter changed to: " + filter.getFilterName(filterIndex), Toast.LENGTH_SHORT).show();
     }
-
-    private float x1, y1, x2, y2, diffx, diffy;
-
 
     @Override
     public boolean onMenuItemClick(MenuItem item) {
@@ -449,77 +430,87 @@ public class MainActivity extends CameraActivity implements CvCameraViewListener
 
     @Override
     public boolean onTouch(View v, MotionEvent event) {
-        // TODO put code in here
-        return false;//false indicates the event is not consumed
-    }
-
-    @Override
-    public boolean onTouchEvent(MotionEvent touchevent) {
-
-        switch (touchevent.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                x1 = touchevent.getX();
-                y1 = touchevent.getY();
-                break;
-            case MotionEvent.ACTION_UP:
-                x2 = touchevent.getX();
-                y2 = touchevent.getY();
-
-                if (x1 < x2 && Math.abs(x1 - x2) > 50) {
-                    moveLeft();
-                    return true;
-                }
-
-                if (x1 > x2 && Math.abs(x2 - x1) > 50) {
-                    moveRight();
-                    return true;
-                }
-                break;
-        }
         return false;
     }
 
     @Override
-    public void onSaveInstanceState(Bundle savedInstanceState) {
-        savedInstanceState.putInt(STATE_CAMERA_INDEX, camera_index);
-        savedInstanceState.putInt(STATE_FLIP, flip_state);
-        savedInstanceState.putInt(FRONT_SIZE_INDEX, front_size_index);
-        savedInstanceState.putInt(BACK_SIZE_INDEX, back_size_index);
-        savedInstanceState.putInt(CURRENT_FILTER, filter_index);
-        savedInstanceState.putInt(CURRENT_SET_FILTER, current_set_filter);
-        super.onSaveInstanceState(savedInstanceState);
+    public boolean onTouchEvent(MotionEvent touchEvent) {
+        switch (touchEvent.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                x1 = touchEvent.getX();
+                return true;
+            case MotionEvent.ACTION_UP:
+                x2 = touchEvent.getX();
+                if (x1 < x2 && Math.abs(x1 - x2) > 50) {
+                    moveLeft();
+                } else if (x1 > x2 && Math.abs(x2 - x1) > 50) {
+                    moveRight();
+                }
+                return true;
+            default:
+                return super.onTouchEvent(touchEvent);
+        }
     }
 
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        outState.putInt(STATE_CAMERA_INDEX, lensFacing);
+        outState.putInt(STATE_FLIP, flipState);
+        outState.putInt(CURRENT_FILTER, filterIndex);
+        outState.putInt(CURRENT_SET_FILTER, currentSetFilter);
+        super.onSaveInstanceState(outState);
+    }
 
     public void saveImage(Mat mat) {
-        File path = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-        String filename = "AcidCam_Image_" + "0000" + snap_shot_index + ".jpg";
-        File file = new File(path, filename);
-        Boolean bool = null;
-        filename = file.toString();
         mp.start();
-        Mat resizeImage = new Mat();
-        org.opencv.core.Size scaleSize = new org.opencv.core.Size(mat.width()*2, mat.height()*2);
-        Imgproc.resize(mat, resizeImage, scaleSize , 0, 0, Imgproc.INTER_CUBIC);
-        Mat cmat = new Mat();
-        Imgproc.cvtColor(resizeImage, cmat, Imgproc.COLOR_RGBA2BGR, 3);
-        Log.d("AC2", "Resized Image: " + resizeImage.width() + "x" + resizeImage.height());
-        bool = Imgcodecs.imwrite(filename, cmat);
-        if (bool == true)
-            Log.d("com.lostsidedead.AcidCam", "SUCCESS writing " + filename + " image to external storage");
-        else
-            Log.d("com.lostsidedead.AcidCam", "Fail writing image to external storage");
-        //MediaScannerConnection.scanFile(this, new String[] { file.getPath() }, new String[] { "image/jpeg" }, null);
-        addImageToGallery(filename, getApplicationContext());
-        cmat.release();
-        resizeImage.release();
-    }
 
-    public static void addImageToGallery(final String filePath, final Context context) {
+        if (outputBgrBuffer == null || outputBgrBuffer.cols() != mat.cols() * 2 || outputBgrBuffer.rows() != mat.rows() * 2) {
+            releaseMat(outputBgrBuffer);
+            outputBgrBuffer = new Mat();
+        }
+
+        Mat resized = new Mat();
+        org.opencv.core.Size scaleSize = new org.opencv.core.Size(mat.width() * 2, mat.height() * 2);
+        Imgproc.resize(mat, resized, scaleSize, 0, 0, Imgproc.INTER_CUBIC);
+        Imgproc.cvtColor(resized, outputBgrBuffer, Imgproc.COLOR_RGBA2BGR, 3);
+
+        MatOfByte matOfByte = new MatOfByte();
+        Imgcodecs.imencode(".jpg", outputBgrBuffer, matOfByte);
+        byte[] bytes = matOfByte.toArray();
+        matOfByte.release();
+        resized.release();
+
+        String filename = String.format("AcidCam_Image_%05d.jpg", snapShotIndex);
         ContentValues values = new ContentValues();
-        values.put(Images.Media.DATE_TAKEN, System.currentTimeMillis());
-        values.put(Images.Media.MIME_TYPE, "image/jpeg");
-        values.put(MediaStore.MediaColumns.DATA, filePath);
-        context.getContentResolver().insert(Images.Media.EXTERNAL_CONTENT_URI, values);
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, filename);
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/AcidCam");
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            values.put(MediaStore.Images.Media.IS_PENDING, 1);
+        }
+
+        android.net.Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (uri == null) {
+            Toast.makeText(this, "Failed to create image record", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+            if (outputStream == null) {
+                throw new IOException("Unable to open output stream");
+            }
+            outputStream.write(bytes);
+        } catch (IOException e) {
+            Toast.makeText(this, "Image save failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            getContentResolver().delete(uri, null, null);
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues pending = new ContentValues();
+            pending.put(MediaStore.Images.Media.IS_PENDING, 0);
+            getContentResolver().update(uri, pending, null, null);
+        }
     }
 }
