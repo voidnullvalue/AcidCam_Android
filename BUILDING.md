@@ -22,5 +22,6 @@
 7. On first launch, grant Camera permission.
 
 ## Notes
+- minSdk 21 is required due to Android NDK r26+ native build support constraints.
 - `local.properties` should remain local and is not required in version control.
 - Image saves are handled with `MediaStore` under `Pictures/AcidCam` and do not require legacy storage permissions.
