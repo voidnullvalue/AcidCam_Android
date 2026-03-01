@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace 'org.opencv'
-    compileSdk 35
+    compileSdk 34
     ndkVersion '26.3.11579264'
 
     defaultConfig {
@@ -36,6 +36,12 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
         }
+    }
+
+
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {
