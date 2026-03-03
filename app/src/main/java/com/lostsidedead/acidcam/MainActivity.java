@@ -81,6 +81,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     private Mat yuvBuffer;
     private Mat rgbaBuffer;
     private Mat uprightBuffer;
+    private Mat filterRgbBuffer;
     private Mat outputBgrBuffer;
     private byte[] nv21Buffer;
     private Bitmap displayBitmap;
@@ -242,7 +243,11 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
             Log.w(TAG, "Skipping filter apply due to empty processing buffer. rotation=" + rotationDegrees + " width=" + width + " height=" + height);
         } else {
             try {
-                filter.Filter(currentSetFilter, processingBuffer.getNativeObjAddr());
+                // Native filters in libacidcam operate on 3-channel BGR frames.
+                // CameraX provides RGBA, so convert before and after applying the filter.
+                Imgproc.cvtColor(processingBuffer, filterRgbBuffer, Imgproc.COLOR_RGBA2BGR);
+                filter.Filter(currentSetFilter, filterRgbBuffer.getNativeObjAddr());
+                Imgproc.cvtColor(filterRgbBuffer, processingBuffer, Imgproc.COLOR_BGR2RGBA);
             } catch (RuntimeException e) {
                 Log.e(TAG, "Filter apply failed for filterIndex=" + filterIndex + ", currentSetFilter=" + currentSetFilter, e);
             }
@@ -306,6 +311,11 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         if (uprightBuffer == null || uprightBuffer.cols() != outputWidth || uprightBuffer.rows() != outputHeight) {
             releaseMat(uprightBuffer);
             uprightBuffer = new Mat(outputHeight, outputWidth, CvType.CV_8UC4);
+        }
+
+        if (filterRgbBuffer == null || filterRgbBuffer.cols() != outputWidth || filterRgbBuffer.rows() != outputHeight) {
+            releaseMat(filterRgbBuffer);
+            filterRgbBuffer = new Mat(outputHeight, outputWidth, CvType.CV_8UC3);
         }
 
         if (displayBitmap == null || displayBitmap.getWidth() != outputWidth || displayBitmap.getHeight() != outputHeight) {
@@ -377,6 +387,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         releaseMat(yuvBuffer);
         releaseMat(rgbaBuffer);
         releaseMat(uprightBuffer);
+        releaseMat(filterRgbBuffer);
         releaseMat(outputBgrBuffer);
         if (mp != null) {
             mp.release();
