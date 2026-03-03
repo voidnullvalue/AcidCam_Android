@@ -9,6 +9,7 @@ import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -56,6 +57,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity implements View.OnTouchListener, androidx.appcompat.widget.PopupMenu.OnMenuItemClickListener {
+    private static final String TAG = "AcidCamMain";
     private static final String STATE_CAMERA_INDEX = "cameraIndex";
     private static final String STATE_FLIP = "cameraFlip";
     private static final String CURRENT_FILTER = "current_filter";
@@ -141,6 +143,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
             flipState = savedInstanceState.getInt(STATE_FLIP, -1);
             filterIndex = savedInstanceState.getInt(CURRENT_FILTER, 0);
             currentSetFilter = savedInstanceState.getInt(CURRENT_SET_FILTER, 0);
+            normalizeFilterSelection();
         }
 
         mp = MediaPlayer.create(this, R.raw.beep);
@@ -228,10 +231,22 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
 
         if (filterChanged) {
             filterChanged = false;
-            filter.clear_frames();
+            try {
+                filter.clear_frames();
+            } catch (RuntimeException e) {
+                Log.e(TAG, "clear_frames failed for filterIndex=" + filterIndex + ", currentSetFilter=" + currentSetFilter, e);
+            }
         }
 
-        filter.Filter(currentSetFilter, processingBuffer.getNativeObjAddr());
+        if (processingBuffer.empty()) {
+            Log.w(TAG, "Skipping filter apply due to empty processing buffer. rotation=" + rotationDegrees + " width=" + width + " height=" + height);
+        } else {
+            try {
+                filter.Filter(currentSetFilter, processingBuffer.getNativeObjAddr());
+            } catch (RuntimeException e) {
+                Log.e(TAG, "Filter apply failed for filterIndex=" + filterIndex + ", currentSetFilter=" + currentSetFilter, e);
+            }
+        }
         Core.flip(processingBuffer, processingBuffer, flipState);
 
         if (takeSnapshot) {
@@ -397,7 +412,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getGroupId() == MENU_FILTER_MAP) {
             filterIndex = item.getItemId();
-            currentSetFilter = filter.getFilterIndex(filterIndex);
+            currentSetFilter = safeGetFilterIndex(filterIndex);
             filterChanged = true;
             Toast.makeText(this, "Filter changed to: " + filter.getFilterName(filterIndex), Toast.LENGTH_SHORT).show();
             return true;
@@ -405,7 +420,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
 
         if (item.getGroupId() == MENU_FILTER_SORTED_MAP) {
             filterIndex = item.getItemId();
-            currentSetFilter = filter.getFilterSortedIndex(filterIndex);
+            currentSetFilter = safeGetFilterSortedIndex(filterIndex);
             filterChanged = true;
             Toast.makeText(this, "Filter changed to: " + filter.getFilterSortedName(filterIndex), Toast.LENGTH_SHORT).show();
             return true;
@@ -422,11 +437,11 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
             moveRight();
         } else if (id == R.id.fastforward) {
             filterIndex = filterMapMax - 1;
-            currentSetFilter = filter.getFilterIndex(filterIndex);
+            currentSetFilter = safeGetFilterIndex(filterIndex);
             filterChanged = true;
         } else if (id == R.id.rewind_left) {
             filterIndex = 0;
-            currentSetFilter = filter.getFilterIndex(filterIndex);
+            currentSetFilter = safeGetFilterIndex(filterIndex);
             filterChanged = true;
         } else if (id == R.id.flipi) {
             flipState = 0;
@@ -471,7 +486,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     public void moveRight() {
         if (filterIndex < filterMapMax - 1) {
             ++filterIndex;
-            currentSetFilter = filter.getFilterIndex(filterIndex);
+            currentSetFilter = safeGetFilterIndex(filterIndex);
             filterChanged = true;
         }
         Toast.makeText(this, "Filter changed to: " + filter.getFilterName(filterIndex), Toast.LENGTH_SHORT).show();
@@ -480,10 +495,42 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     public void moveLeft() {
         if (filterIndex > 0) {
             --filterIndex;
-            currentSetFilter = filter.getFilterIndex(filterIndex);
+            currentSetFilter = safeGetFilterIndex(filterIndex);
             filterChanged = true;
         }
         Toast.makeText(this, "Filter changed to: " + filter.getFilterName(filterIndex), Toast.LENGTH_SHORT).show();
+    }
+
+    private void normalizeFilterSelection() {
+        int max = filter.maxFilters();
+        if (max <= 0) {
+            filterIndex = 0;
+            currentSetFilter = 0;
+            return;
+        }
+        if (filterIndex < 0 || filterIndex >= max) {
+            Log.w(TAG, "Saved filter index out of range: " + filterIndex + ", resetting to 0");
+            filterIndex = 0;
+        }
+        currentSetFilter = safeGetFilterIndex(filterIndex);
+    }
+
+    private int safeGetFilterIndex(int index) {
+        int max = filter.maxFilters();
+        if (index >= 0 && index < max) {
+            return filter.getFilterIndex(index);
+        }
+        Log.w(TAG, "Requested unsorted filter index out of range: " + index + " max=" + max + ". Falling back to first filter.");
+        return filter.getFilterIndex(0);
+    }
+
+    private int safeGetFilterSortedIndex(int index) {
+        int max = filter.maxFilters();
+        if (index >= 0 && index < max) {
+            return filter.getFilterSortedIndex(index);
+        }
+        Log.w(TAG, "Requested sorted filter index out of range: " + index + " max=" + max + ". Falling back to first filter.");
+        return filter.getFilterSortedIndex(0);
     }
 
     @Override
